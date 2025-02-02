@@ -1,0 +1,12 @@
+# Ignore following files:
+*.o
+*.out
+*.bin
+*.elf
+core
+core.*
+
+
+# Ignore following directories:
+.vascode/
+build/

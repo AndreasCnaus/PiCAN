@@ -1,0 +1,9 @@
+# Ignore following files:
+*.o
+*.out
+*.bin
+*.elf
+core
+cire.*
+mcp2515_test
+mcp2515_test.*

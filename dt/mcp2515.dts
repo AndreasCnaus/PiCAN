@@ -1,0 +1,61 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2835";
+
+    fragment@0 {
+        target = <&spi0>;
+        __overlay__ {
+            status = "okay";
+        };
+    };
+
+    fragment@1 {
+        target = <&spidev0>;
+        __overlay__ {
+            status = "disabled";    // Disable spidev0
+        };
+    };
+
+    fragment@2 { 
+        target = <&gpio>;                 // https://www.kernel.org/doc/Documentation/devicetree/bindings/pinctrl/brcm,bcm2835-gpio.txt
+        __overlay__ { 
+            gpio_pin_17: gpio_pin_17 { 
+                brcm,pins = <0x11>;
+                brcm,function = <0x01>;    // GPIO in
+                brcm,pull = <0x02>;        //  2: pull-up to detect edge-falling interrupt
+            }; 
+        }; 
+    };
+
+    fragment@3 {
+        target = <&spi0>;
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            mcp2515: can@0 {
+                compatible = "microchip,mcp2515";
+                reg = <0x0>;                        // Chip Select 0 (CS0)
+                spi-max-frequency = <10000000>;
+                oscillator-frequency = <8000000>;   // Oscillator frequency, 8MHz
+                ost = <128>;                        // Oscillator Start-up Timer in clock cycles 
+                cs-gpios = <&gpio 24 0>;            // GPIO used for chipselect with active low
+                interrupt-parent = <&gpio>;         // GPIO controller for interrupts
+                interrupts = <17 2>;                // Edge-falling interrupt on GPIO 17
+
+                // Configuration parameters for CAN-Bus baudrate = 125kbps
+                bpr = <2>;          // baudrate prescaler to devide the oscillator frequency 
+                tsync = <1>;        // Synchronization segment time in TQ sudo apt-get install git-core
+
+                tprop_seg = <2>;    // Propagation segment time in TQ
+                ps1 = <7>;          // Phase segmaent 1 time in TQ
+                ps2 = <6>;          // Pahse segement 2 time in TQ
+                sjw = <1>;          // Synchronization jump width
+                btlmode = <1>;      // Length of PS2 is determined by the PHSEG2[2:0] bits of CNF3
+                sam = <1>;          // Bus line is sampled three times at the sample point   
+            };
+        };
+    };
+};
