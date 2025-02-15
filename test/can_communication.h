@@ -1,13 +1,12 @@
-#ifndef MCP2515_TEST_H
-#define MCP2515_TEST_H
+#ifndef MCP2515_COMMUNICATION_H
+#define MCP2515_COMMUNICATION_H
 
 #include "../common/mcp2515_common.h"
-#include <cstdint>  // Includes fixed-width integer types like uint8_t, uint16_t
-#include <fcntl.h>  // Includes file control options like open(), close(), read(), write()
-#include <unistd.h> // Provides access to the POSIX operating system API
-#include <vector>
-#include <string>
-
+#include <cstdint>  // includes fixed-width integer types like uint8_t, uint16_t, uint32_t, etc.
+#include <fcntl.h>  // includes file control options and flags for open(), O_RDWR, O_NONBLOCK, etc.
+#include <unistd.h> // provides access to the POSIX operating system API, including close(), read(), write(), etc.
+#include <vector>   
+#include <string> 
 
 class CanFrame {
 private:
@@ -38,4 +37,4 @@ private:
 };
 
 
-#endif // MCP2515_TEST_H
+#endif // MCP2515_COMMUNICATION_H

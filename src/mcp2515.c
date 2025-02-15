@@ -1,4 +1,5 @@
 #include "mcp2515_circular_buffer.h"
+#include "../common/mcp2515_ioctl.h"
 #include "mcp2515.h"
 
 #include <linux/module.h>		// required for module initialization and cleanup macros
@@ -134,6 +135,8 @@ static int mcp2515_release(struct inode *inode, struct file *file);
 static unsigned int mcp2515_poll(struct file *file, poll_table *wait); 
 static ssize_t mcp2515_read(struct file *file, char __user *buf, size_t count, loff_t *f_pos);
 static ssize_t mcp2515_write(struct file *file, const char __user *buf, size_t count, loff_t *f_pos);
+static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+// static long mcp2515_set_rxb1f(struct rx_filter);
 
 // device provisioning 
 static int mcp2515_spi_probe(struct spi_device *spi);
@@ -147,7 +150,7 @@ static struct file_operations mcp2515_fops = {
     .poll = mcp2515_poll,
     .read = mcp2515_read,
     .write = mcp2515_write,
-    // ToDo: add unlocked_ioctl() for control
+    .unlocked_ioctl = mcp2515_ioctl,
 } ;
 
 // interrupt handler lookup table
@@ -894,6 +897,75 @@ static ssize_t mcp2515_write(struct file *file, const char __user *buf, size_t c
     queue_work(priv->tx_work_queue, &priv->tx_work);
 
     return count;
+}
+
+static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+    long  ret = 0;
+    struct mcp2515_priv *priv = file->private_data;
+    struct spi_device *spi = NULL;
+
+    // retrieve private data
+    if (!priv) {
+        pr_err("Failed to retrieve private data\n");
+        return -EINVAL;
+    }
+    spi = priv->spi;
+
+    switch(cmd) {
+        case MCP2515_RESET_IOCTL: {
+            dev_info(&spi->dev, "MCP2515 reset command received\n");
+            
+            // reset the hardware and block the caller thread until the functions returns
+            ret = (long)mcp2515_reset_hw(spi);
+            break;
+        }
+        case MC2515_SET_RXB1F_IOCTL: {
+            dev_info(&spi->dev, "MCP2515 set RXB1 filter command received\n");
+            // ToDo: implement 
+            break;
+        }
+        case MCP2515_SET_OPMODE_IOCTL: {
+            // retrieve the operation mode from user space argument 
+            ret = copy_from_user(&priv->des_opmode, (u8 __user *)arg, sizeof(priv->des_opmode));
+            if (ret) {
+                dev_err(&spi->dev, "Failed to copy opmode-value from user space\n");
+                return -EFAULT;
+            }
+            dev_info(&spi->dev, "MCP2515 set operation mode command received. Mode: %u\n", priv->des_opmode);
+
+            // set the desired mode and block the caller thread until the functions returns
+            ret = (long)mcp2515_set_opmode(spi, priv->des_opmode);
+            if (ret) {
+                return -EFAULT;
+            }
+            break;
+        }
+        case MCP2515_GET_OPMODE_IOCTL: {
+            u8 canstat = 0;
+            u8 opmode = 0;
+            dev_info(&spi->dev, "MCP2515 get operation mode command received\n");
+
+            // read CANSTAt register
+            ret = (long)mcp2515_read_reg(spi, MCP2515_CANSTAT, &canstat);
+            if (ret) {
+                dev_err(&spi->dev, "Failed to read CANSTAT register\n");
+                return -EFAULT; 
+            }
+
+            // retrive operation mode and copy it to user space 
+            opmode = ((canstat & MCP2515_OPMOD_M) >> MCP2515_OPMOD_O);
+            ret = copy_to_user((u8 __user *)arg, &opmode, sizeof(opmode));
+            if (ret) {
+                dev_err(&spi->dev, "Failed to copy opmode-value to user space\n");
+                return -EFAULT;
+            }
+            break;
+        }
+        default:    
+            return -ENOTTY;
+    }
+    return ret;
 }
 
 // probing the device

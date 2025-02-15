@@ -1,23 +1,147 @@
-#include "mcp2515_test.h"
-#include <iostream>     // required the standard C++ input/output stream library
-#include <stdexcept>    // required for exceptions 
-#include <cstring>      // required for strerror
-#include <cerrno>       // required errno
-#include <atomic>       // required for atomic variable to stop threads 
-#include <mutex>        // required for std::mutex and std::lock_guard
-#include <sstream>
-#include <thread>
-#include <csignal>
+#include "../common/mcp2515_ioctl.h"
+#include "can_communication.h"
+
+#include <iostream>     // required for standard C++ input/output stream library
+#include <stdexcept>    // required for standard exceptions
+#include <cstring>      // required for C string handling functions like strerror
+#include <cerrno>       // required for errno macro to report error codes
+#include <atomic>       // required for atomic variables used in multithreading
+#include <mutex>        // required for std::mutex and std::lock_guard to manage concurrent access
+#include <sstream>      // required for string stream operations
+#include <thread>       // required for using std::thread for multithreading
+#include <csignal>      // required for handling POSIX signals
+#include <sys/ioctl.h>  // required for ioctl system call for device-specific input/output operations
+#include <fcntl.h>      // required for file control options like open, O_RDWR, O_NONBLOCK, etc.
+
 
 #define DEVICE_FILE     "/dev/mcp2515"  // mcp2515 device file
 
 std::atomic<bool> stop_thread(false);   // gloabal flag to signal thread to stop  
+
+static void signal_handler(int signal);
+static void show_config_menu();
+static void config_hw(CanDevice* dev);
+static void thread_send_data(CanDevice* dev);
+static void thread_receive_data(CanDevice* dev);
+
+int main(int argc, char* argv[]) 
+{
+    // parse input parameters 
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << "<config|read|write>" << std::endl;
+        return 1;
+    }
+
+    // register the signal handler for SIGINT and SIGTERM 
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+
+    try {
+        std::string mode(argv[1]);
+
+        if (mode == "config") {
+            CanDevice dev(DEVICE_FILE, O_RDWR);
+            config_hw(&dev);
+        } 
+        else if (mode == "write") {
+            // start the sender thread
+            CanDevice dev(DEVICE_FILE, O_WRONLY | O_NONBLOCK);
+            std::thread sender(thread_send_data, &dev);
+            sender.join();  // wait for the sender thread to finish
+        } 
+        else if (mode == "read") {
+            // start the receiver thread
+            CanDevice dev(DEVICE_FILE, O_RDONLY | O_NONBLOCK);
+            std::thread receiver(thread_receive_data, &dev);
+            receiver.join();    // wait for receiver thread finish
+        } 
+        else {
+            std::cerr << "Invalid mode. Use 'read' or 'write'." << std::endl;
+        }
+
+    } catch (const std::exception& e) {
+    std::cerr << "Exception occurred: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "Unknown exception occurred" << std::endl;
+    }
+
+    return 0;
+}
+
 
 void signal_handler(int signal)
 {
     if (signal == SIGINT || signal == SIGTERM) {
         stop_thread.store(true); // signal threads to stop
         std::cout << "Stop signal recived. Stopping the threads ..." << std::endl;
+    }
+}
+
+void show_config_menu()
+{
+    std::cout << "=== MCP2515 Configuration Menu ===\n";
+    std::cout << "1. Reset Device\n";
+    std::cout << "2. Set RXB1 Filter\n";
+    std::cout << "3. Set Operation Mode\n";
+    std::cout << "4. Get Operation Mode\n";
+    std::cout << "5. Exit\n";
+    std::cout << "Enter your choice: ";
+}
+
+void config_hw(CanDevice *dev)
+{
+    int fd = dev->get_fd();
+    int choice = 0;
+    while(true) {
+        show_config_menu();
+        std::cin >> choice;
+        switch(choice) {
+            case 1: {
+                if (ioctl(fd, MCP2515_RESET_IOCTL) < 0) {
+                    std::cerr << "Failed to reset the device\n";
+                } else {
+                    std::cout << "Device reseted successfully and is in configuration mode now\n";
+                }
+                break;
+            }
+            case 2:
+                // ToDo: implement
+                break;
+            case 3: {
+                int opmode_input;
+                uint8_t opmode = 0;
+
+                // read user input 
+                std::cout << "Enter operation mode: ";
+                std::cin >> opmode_input;   // read the user input as integer first 
+                opmode = static_cast<uint8_t>(opmode_input);
+
+                // set the operation mode 
+                if (ioctl(fd, MCP2515_SET_OPMODE_IOCTL, &opmode) < 0) {
+                    std::cerr << "Failed to set operation mode\n";
+                } else {
+                    std::cout << "Operation mode set successfully\n";
+                }
+                break;
+            }
+            case 4: {
+                uint8_t opmode = 0;
+                if (ioctl(fd, MCP2515_GET_OPMODE_IOCTL, &opmode) < 0) {
+                    std::cerr << "Failed to get operation mode\n";
+                } else {
+                    std::cout << "Current operation mode: " << static_cast<int>(opmode) << std::endl;
+                }
+                break;
+            }
+            case 5: {
+                std::cout << "Exiting configuration mode\n";
+                return;
+            }
+            default:   
+                std::cout << "Invalid choice, try again\n";
+                break;
+        }
+        std::cout << std::endl;
     }
 }
 
@@ -48,7 +172,6 @@ void thread_send_data(CanDevice* dev)
             std::cerr << " Invalid SID, error in: " << e.what() << "\n\n";
             continue;
         }
-        
         
         // read the CAN-Data
         std::cout << "Enter message: ";
@@ -167,133 +290,5 @@ void thread_receive_data(CanDevice* dev)
             }
         }
     } 
-}
-
-int main(int argc, char* argv[]) 
-{
-    // parse input parameters 
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << "<read|write>" << std::endl;
-        return 1;
-    }
-
-    // register the signal handler for SIGINT and SIGTERM 
-    std::signal(SIGINT, signal_handler);
-    std::signal(SIGTERM, signal_handler);
-
-    try {
-        
-        std::string mode(argv[1]);
-
-        if (mode == "write") {
-            // start the sender thread
-            CanDevice dev(DEVICE_FILE, O_WRONLY | O_NONBLOCK);
-            std::thread sender(thread_send_data, &dev);
-            sender.join();  // wait for the sender thread to finish
-        } 
-        else if (mode == "read") {
-            // start the receiver thread
-            CanDevice dev(DEVICE_FILE, O_RDONLY | O_NONBLOCK);
-            std::thread receiver(thread_receive_data, &dev);
-            receiver.join();    // wait for receiver thread finish
-        } 
-        else {
-            std::cerr << "Invalid mode. Use 'read' or 'write'." << std::endl;
-        }
-
-    } catch (const std::exception& e) {
-    std::cerr << "Exception occurred: " << e.what() << std::endl;
-    } catch (...) {
-        std::cerr << "Unknown exception occurred" << std::endl;
-    }
-
-
-    return 0;
-}
-
-CanFrame::CanFrame(uint16_t sid, std::vector<uint8_t> data)
-{
-    // Check if the data size exceeds the maximum allowed length
-    if (data.size() > MCP2515_MAXDL) {
-        throw std::invalid_argument("Data size exceeds the maximum allowed length of CAN frame payload");
-    }
-
-    m_fdata.sid = sid;
-    m_fdata.dlc = data.size();
-    std::copy(data.begin(), data.end(), m_fdata.data);
-}
-
-void CanFrame::print_frame_data()
-{
-    std::cout << "SID: " << m_fdata.sid << std::endl;
-    std::cout << "DLC: " << static_cast<int>(m_fdata.dlc) << std::endl;
-    std::cout << "Data: ";
-    for (size_t i = 0; i < m_fdata.dlc; ++i) {
-        std::cout << static_cast<int>(m_fdata.data[i]) << " ";
-    }
-    std::cout << "\n\n";
-}
-
-void CanFrame::print_message()
-{
-    for (size_t i = 0; i < m_fdata.dlc; ++i) {
-        std::cout << static_cast<char>(m_fdata.data[i]);
-    }
-    std::cout << std::endl;
-}
-
-CanDevice::CanDevice(std::string file, int oflag)
-: m_file(file)
-{
-    if (device_open(oflag) != 0) {
-        throw std::runtime_error("Failed to open device" + m_file);
-    }
-}
-
-int CanDevice::send_frame(const CanFrame &frame)
-{
-    ssize_t bytes_written = 0;
-
-    // write data to the device
-    can_frame_data fdata = frame.get_frame_data();
-    bytes_written = write(m_fd, &fdata, sizeof(fdata));
-    if (bytes_written == -1) {
-        std::cerr << "Error: Failed to write to the device " << m_file << ": " << strerror(errno) << std::endl;
-        return -1;
-    }
-
-    // Check if all bytes are written
-    if (bytes_written != sizeof(fdata)) {
-        std::cerr << "Partial write: " << bytes_written << " of " << sizeof(fdata) << " bytes written" << std::endl;
-        return -1;
-    }
-
-    return 0;
-}
-
-int CanDevice::receive_frame(CanFrame &frame)
-{
-    ssize_t bytes_read = 0;
-    can_frame_data fdata;
-
-    bytes_read = read(m_fd, &fdata, sizeof(fdata));
-    if(bytes_read == -1) {
-        std::cerr << "Error: Failed to read from the device " << m_file << ": " << strerror(errno) << std::endl;
-        return -1;
-    }
-
-    frame.set_frame_data(fdata);
-
-    return 0;
-}
-
-int CanDevice::device_open(int oflag)
-{
-    m_fd = open(m_file.c_str(), oflag);
-    if (m_fd == -1) {
-        return -1;
-    }
-
-    return 0;
 }
 

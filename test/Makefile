@@ -6,7 +6,7 @@ CFLAGS = -Wall -pthread
 TARGET = mcp2515_test
 
 # Source files
-SRCS = mcp2515_test.cpp
+SRCS = mcp2515_test.cpp can_communication.cpp
 
 #Default target
 all: $(TARGET)
