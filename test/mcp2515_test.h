@@ -1,31 +1,23 @@
+#ifndef MCP2515_TEST_H
+#define MCP2515_TEST_H
+
+#include "../common/mcp2515_common.h"
 #include <cstdint>  // Includes fixed-width integer types like uint8_t, uint16_t
 #include <fcntl.h>  // Includes file control options like open(), close(), read(), write()
 #include <unistd.h> // Provides access to the POSIX operating system API
 #include <vector>
 #include <string>
 
-#define MCP2515_MAXDL           8       // Maximum number of data bytes in Tx or Rx Buffer
-
-struct FrameData {
-    uint16_t sid;                       // standard identifier 
-    uint8_t dlc;                        // data length code 
-    uint8_t data[MCP2515_MAXDL];        // data buffer
-
-    FrameData() = default;                          // default constructor 
-    FrameData(const FrameData& other);              // copy constructor   
-
-    FrameData& operator=(const FrameData& other);   // copy assignment operator 
-};
 
 class CanFrame {
 private:
-   FrameData m_fdata;
+   can_message m_fdata;
 public: 
     CanFrame() = default;   // default constructor 
     CanFrame(uint16_t sid, std::vector<uint8_t> data);
 
-    FrameData get_frame_data() const { return m_fdata; };
-    void set_frame_data(const FrameData& fdata) { m_fdata = fdata; };
+    can_message get_frame_data() const { return m_fdata; };
+    void set_frame_data(const can_message& fdata) { m_fdata = fdata; };
     void print_frame_data();
     void print_message();
 };
@@ -44,3 +36,6 @@ public:
 private:
     int device_open(int oflag);
 };
+
+
+#endif // MCP2515_TEST_H

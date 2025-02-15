@@ -40,8 +40,16 @@ void thread_send_data(CanDevice* dev)
             stop_thread.store(true);
             break;
         }
-        sid = static_cast<uint16_t>(std::stoul(input, nullptr, 16));   // interprets an unsigned integer value in the input string
 
+        try {
+            sid = static_cast<uint16_t>(std::stoul(input, nullptr, 16));   // interprets an unsigned integer value in the input string
+        }
+        catch(const std::exception& e) {
+            std::cerr << " Invalid SID, error in: " << e.what() << "\n\n";
+            continue;
+        }
+        
+        
         // read the CAN-Data
         std::cout << "Enter message: ";
         std::getline(std::cin, input);
@@ -203,24 +211,6 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-FrameData::FrameData(const FrameData &other)
-{
-    sid = other.sid;
-    dlc = other.dlc;
-    std::memcpy(data, other.data, sizeof(data));
-
-}
-
-FrameData &FrameData::operator=(const FrameData &other)
-{
-    if (this != &other) {
-        sid = other.sid;
-        dlc = other.dlc;
-        std::memcpy(data, other.data, sizeof(data));
-    }
-    return *this;
-}
-
 CanFrame::CanFrame(uint16_t sid, std::vector<uint8_t> data)
 {
     // Check if the data size exceeds the maximum allowed length
@@ -265,16 +255,16 @@ int CanDevice::send_frame(const CanFrame &frame)
     ssize_t bytes_written = 0;
 
     // write data to the device
-    FrameData frame_data = frame.get_frame_data();
-    bytes_written = write(m_fd, &frame_data, sizeof(frame_data));
+    can_message msg = frame.get_frame_data();
+    bytes_written = write(m_fd, &msg, sizeof(msg));
     if (bytes_written == -1) {
         std::cerr << "Error: Failed to write to the device " << m_file << ": " << strerror(errno) << std::endl;
         return -1;
     }
 
     // Check if all bytes are written
-    if (bytes_written != sizeof(frame_data)) {
-        std::cerr << "Partial write: " << bytes_written << " of " << sizeof(frame_data) << " bytes written" << std::endl;
+    if (bytes_written != sizeof(msg)) {
+        std::cerr << "Partial write: " << bytes_written << " of " << sizeof(msg) << " bytes written" << std::endl;
         return -1;
     }
 
@@ -284,15 +274,15 @@ int CanDevice::send_frame(const CanFrame &frame)
 int CanDevice::receive_frame(CanFrame &frame)
 {
     ssize_t bytes_read = 0;
-    FrameData frame_data;
+    can_message msg;
 
-    bytes_read = read(m_fd, &frame_data, sizeof(frame_data));
+    bytes_read = read(m_fd, &msg, sizeof(msg));
     if(bytes_read == -1) {
         std::cerr << "Error: Failed to read from the device " << m_file << ": " << strerror(errno) << std::endl;
         return -1;
     }
 
-    frame.set_frame_data(frame_data);
+    frame.set_frame_data(msg);
 
     return 0;
 }
