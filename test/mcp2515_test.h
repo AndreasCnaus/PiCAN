@@ -11,13 +11,13 @@
 
 class CanFrame {
 private:
-   can_message m_fdata;
+   can_frame_data m_fdata;
 public: 
     CanFrame() = default;   // default constructor 
     CanFrame(uint16_t sid, std::vector<uint8_t> data);
 
-    can_message get_frame_data() const { return m_fdata; };
-    void set_frame_data(const can_message& fdata) { m_fdata = fdata; };
+    can_frame_data get_frame_data() const { return m_fdata; };
+    void set_frame_data(const can_frame_data& fdata) { m_fdata = fdata; };
     void print_frame_data();
     void print_message();
 };

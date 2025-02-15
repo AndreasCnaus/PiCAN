@@ -255,16 +255,16 @@ int CanDevice::send_frame(const CanFrame &frame)
     ssize_t bytes_written = 0;
 
     // write data to the device
-    can_message msg = frame.get_frame_data();
-    bytes_written = write(m_fd, &msg, sizeof(msg));
+    can_frame_data fdata = frame.get_frame_data();
+    bytes_written = write(m_fd, &fdata, sizeof(fdata));
     if (bytes_written == -1) {
         std::cerr << "Error: Failed to write to the device " << m_file << ": " << strerror(errno) << std::endl;
         return -1;
     }
 
     // Check if all bytes are written
-    if (bytes_written != sizeof(msg)) {
-        std::cerr << "Partial write: " << bytes_written << " of " << sizeof(msg) << " bytes written" << std::endl;
+    if (bytes_written != sizeof(fdata)) {
+        std::cerr << "Partial write: " << bytes_written << " of " << sizeof(fdata) << " bytes written" << std::endl;
         return -1;
     }
 
@@ -274,15 +274,15 @@ int CanDevice::send_frame(const CanFrame &frame)
 int CanDevice::receive_frame(CanFrame &frame)
 {
     ssize_t bytes_read = 0;
-    can_message msg;
+    can_frame_data fdata;
 
-    bytes_read = read(m_fd, &msg, sizeof(msg));
+    bytes_read = read(m_fd, &fdata, sizeof(fdata));
     if(bytes_read == -1) {
         std::cerr << "Error: Failed to read from the device " << m_file << ": " << strerror(errno) << std::endl;
         return -1;
     }
 
-    frame.set_frame_data(msg);
+    frame.set_frame_data(fdata);
 
     return 0;
 }

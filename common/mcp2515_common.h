@@ -17,7 +17,7 @@
 #define MCP2515_LISTEN_ONLY_MODE    0x03 // 011: Sets Listen-Only mode
 #define MCP2515_CONFIG_MODE         0x04 // 100: Sets Configuration mode
 
-struct can_message {
+struct can_frame_data {
     uint16_t sid;                   // Standard identifier 
     uint8_t dlc;                    // Data length code 
     uint8_t data[MCP2515_MAXDL];    // Data buffer

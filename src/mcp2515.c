@@ -107,14 +107,14 @@ static int mcp2515_config_hw(struct spi_device *spi);
 static int mcp2515_start_dwork(struct mcp2515_priv *priv, work_func_t work_func);
 static void mcp2515_check_opmode_work(struct work_struct *work);
 
-static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id);                               // set the standard indentifier for the transmit buffer 2
-static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len);             // set the message data for the transmit buffer 2
-static int mcp2515_write_can_msg(struct spi_device *spi, u16 id, const u8 *data, u8 len);    // transmit the CAN messsage over the transmit buffer 2
-static void mcp2515_write_can_msg_work(struct work_struct *work);                              // work function tor transmit CAN Messages
+static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id);                                  // set the standard indentifier for the transmit buffer 2
+static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len);                // set the message data for the transmit buffer 2
+static int mcp2515_write_can_frame(struct spi_device *spi, u16 id, const u8 *data, u8 len);     // transmit the CAN messsage over the transmit buffer 2
+static void mcp2515_write_can_frame_work(struct work_struct *work);                             // work function tor transmit CAN Messages
 
-static int mcp2515_get_rx1_id(struct spi_device *spi, u16 *id);                              // get standard identifier from the receive buffer 1
-static int mcp2515_get_rx1_data(struct spi_device *spi, u8 *data, u8 *len);                  // get the message data and lenght from the receive buffer 1
-static int mcp2515_read_can_msg(struct spi_device *spi, u16 *id, u8 *data, u8 *dlc);         // receive the CAN message over the receive buffer 1
+static int mcp2515_get_rx1_id(struct spi_device *spi, u16 *id);                                 // get standard identifier from the receive buffer 1
+static int mcp2515_get_rx1_data(struct spi_device *spi, u8 *data, u8 *len);                     // get the message data and lenght from the receive buffer 1
+static int mcp2515_read_can_frame(struct spi_device *spi, u16 *id, u8 *data, u8 *dlc);          // receive the CAN message over the receive buffer 1
 
 // interrupt handling routines 
 static irqreturn_t mcp2515_irq(int irq, void *dev_id);          // irq top half
@@ -491,7 +491,7 @@ static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len)
 }
 
 // transmit low riority message over the transmit buffer 2 
-static int mcp2515_write_can_msg(struct spi_device *spi, u16 id, const u8 *data, u8 len)
+static int mcp2515_write_can_frame(struct spi_device *spi, u16 id, const u8 *data, u8 len)
 {
     int ret = 0;
     u8 txb2ctrl = 0;
@@ -510,11 +510,11 @@ static int mcp2515_write_can_msg(struct spi_device *spi, u16 id, const u8 *data,
     return ret;
 }
 
-void mcp2515_write_can_msg_work(struct work_struct *work)
+void mcp2515_write_can_frame_work(struct work_struct *work)
 {
     struct mcp2515_priv *priv = container_of(work, struct mcp2515_priv, tx_work);
     struct spi_device *spi = priv->spi;
-    struct can_message msg;
+    struct can_frame_data frame;
     int ret = 0;
 
     while (!circular_buffer_is_empty(&priv->tx_cbuf)) {
@@ -529,7 +529,7 @@ void mcp2515_write_can_msg_work(struct work_struct *work)
         }
 
         // read the CAN message from the circular buffer 
-        ret = circular_buffer_read(&priv->tx_cbuf, &msg);
+        ret = circular_buffer_read(&priv->tx_cbuf, &frame);
         if (ret) {
             dev_err(&spi->dev, "Failed to read transmit circular buffer\n");
             return;
@@ -537,7 +537,7 @@ void mcp2515_write_can_msg_work(struct work_struct *work)
 
         // transmit the CAN message
         mutex_lock(&priv->spi_lock);
-        ret = mcp2515_write_can_msg(spi, msg.sid, msg.data, msg.dlc);
+        ret = mcp2515_write_can_frame(spi, frame.sid, frame.data, frame.dlc);
         mutex_unlock(&priv->spi_lock);
         if (ret) {
             dev_err(&spi->dev, "Failed to write CAN message to MCP2515\n");
@@ -590,7 +590,7 @@ static int mcp2515_get_rx1_data(struct spi_device *spi, u8 *data, u8 *len)
     return ret;
 }
 
-static int mcp2515_read_can_msg(struct spi_device *spi, u16 *id, u8 *data, u8 *dlc)
+static int mcp2515_read_can_frame(struct spi_device *spi, u16 *id, u8 *data, u8 *dlc)
 {
     int ret = 0;
 
@@ -702,20 +702,20 @@ static int mcp2515_handle_rx1if(struct mcp2515_priv *priv)
 {
     int ret = 0;
     struct spi_device *spi = priv->spi;
-    struct can_message msg;
+    struct can_frame_data frame;
 
     dev_info(&spi->dev, "RX1 interrupt occurred");
 
     // read the message (sid, dlc, data) from device buffer into privat buffer 
     mutex_lock(&priv->spi_lock);
-    ret = mcp2515_read_can_msg(spi, &msg.sid, msg.data, &msg.dlc);
+    ret = mcp2515_read_can_frame(spi, &frame.sid, frame.data, &frame.dlc);
     mutex_unlock(&priv->spi_lock);
     if (ret) {
         dev_err(&spi->dev, "Failed to read CAN-Message\n");
         return -EFAULT;
     }
 
-    ret = circular_buffer_write(&priv->rx_cbuf, &msg);
+    ret = circular_buffer_write(&priv->rx_cbuf, &frame);
     if (ret) {
         // just signal ring buffer overflow (because it is valid condtion)
         dev_info(&spi->dev, "Transmit buffer overflow: tail message was overriden\n");
@@ -813,7 +813,7 @@ static ssize_t mcp2515_read(struct file *file, char __user *buf, size_t count, l
     int ret = 0;
     struct mcp2515_priv *priv = file->private_data;
     struct spi_device *spi = NULL;
-    struct can_message msg;
+    struct can_frame_data frame;
 
     // retrieve private data
     if (!priv) {
@@ -823,7 +823,7 @@ static ssize_t mcp2515_read(struct file *file, char __user *buf, size_t count, l
     spi = priv->spi;
 
     // check for full frame size
-    if (count != sizeof(msg)) {
+    if (count != sizeof(frame)) {
         dev_err(&spi->dev, "Incorrect frame size\n");
         return -EINVAL;
     }
@@ -831,7 +831,7 @@ static ssize_t mcp2515_read(struct file *file, char __user *buf, size_t count, l
     // check if the file is opened in non-blocking mode
     if (file->f_flags & O_NONBLOCK) {
         // try to read the CAN message from the circular buffer
-        ret = circular_buffer_read(&priv->rx_cbuf, &msg);
+        ret = circular_buffer_read(&priv->rx_cbuf, &frame);
         if (ret) {
             return -EAGAIN; // no data available
         }
@@ -841,13 +841,13 @@ static ssize_t mcp2515_read(struct file *file, char __user *buf, size_t count, l
     }
 
     // copy CAN message to the user space 
-    ret = copy_to_user(buf, &msg, sizeof(msg));
+    ret = copy_to_user(buf, &frame, sizeof(frame));
     if (ret) {
         dev_err(&spi->dev, "Failed to copy CAN message to the user space\n");
         return -EFAULT;
     }
 
-    return sizeof(msg);
+    return sizeof(frame);
 }
 
 static ssize_t mcp2515_write(struct file *file, const char __user *buf, size_t count, loff_t *f_pos)
@@ -855,7 +855,7 @@ static ssize_t mcp2515_write(struct file *file, const char __user *buf, size_t c
     int ret = 0;
     struct mcp2515_priv *priv = file->private_data;
     struct spi_device *spi = NULL;
-    struct can_message msg;
+    struct can_frame_data frame;
 
     // retrieve private data
     if (!priv) {
@@ -865,13 +865,13 @@ static ssize_t mcp2515_write(struct file *file, const char __user *buf, size_t c
     spi = priv->spi;
 
     // check for full frame size
-    if (count != sizeof(msg)) {
+    if (count != sizeof(frame)) {
         dev_err(&spi->dev, "Incorrect frame size\n");
         return -EINVAL;
     }
 
     // copy data from user space to kernel space
-    ret = copy_from_user(&msg, buf, count);
+    ret = copy_from_user(&frame, buf, count);
     if (ret) {
         dev_err(&spi->dev, "Failed to copy %zu bytes from user space\n", count - ret);
         return -EFAULT;
@@ -880,7 +880,7 @@ static ssize_t mcp2515_write(struct file *file, const char __user *buf, size_t c
     // check if the file is opened in non-blocking mode
     if (file->f_flags & O_NONBLOCK) {
         // write CAN Message to the transmit circular buffer (override accepted)
-        ret = circular_buffer_write(&priv->tx_cbuf, &msg);
+        ret = circular_buffer_write(&priv->tx_cbuf, &frame);
         if (ret) {
             // just signal ring buffer overflow (because it is valid condtion)
             dev_info(&spi->dev, "Transmit buffer overflow: tail message was overriden\n");
@@ -999,7 +999,7 @@ static int mcp2515_spi_probe(struct spi_device *spi)
     }
 
     // initialize the transmit work structure
-    INIT_WORK(&priv->tx_work, mcp2515_write_can_msg_work);
+    INIT_WORK(&priv->tx_work, mcp2515_write_can_frame_work);
 
     // initialize the atomic varaible to signal that the MCP2515 TX2 buffer is ready for new data
     atomic_set(&priv->tx_buf_ready, 1);   // at the begin the TX2 buffer is empty and thus ready for new data  

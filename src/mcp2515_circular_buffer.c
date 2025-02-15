@@ -9,7 +9,7 @@ void circular_buffer_init(struct circular_buffer *cb)
     mutex_init(&cb->lock);
 }
 
-int circular_buffer_write(struct circular_buffer *cb, struct can_message *msg)
+int circular_buffer_write(struct circular_buffer *cb, struct can_frame_data *frame)
 {
     int ret = 0;
 
@@ -21,7 +21,7 @@ int circular_buffer_write(struct circular_buffer *cb, struct can_message *msg)
         cb->tail = (cb->tail + 1) % BUFFER_SIZE; // move tail to the next position
     }
 
-    cb->buf[cb->head] = *msg;
+    cb->buf[cb->head] = *frame;
     cb->head = (cb->head + 1) % BUFFER_SIZE;
 
     // update the full flag
@@ -32,14 +32,14 @@ int circular_buffer_write(struct circular_buffer *cb, struct can_message *msg)
     return ret;
 }
 
-int circular_buffer_read(struct circular_buffer *cb, struct can_message *msg)
+int circular_buffer_read(struct circular_buffer *cb, struct can_frame_data *frame)
 {
     if (circular_buffer_is_empty(cb))
         return -1;  // buffer is empty 
 
     mutex_lock(&cb->lock);
 
-    *msg = cb->buf[cb->tail];
+    *frame = cb->buf[cb->tail];
     cb->tail = (cb->tail + 1) % BUFFER_SIZE;
     cb->full = 0;
 
