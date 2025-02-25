@@ -136,7 +136,9 @@ static unsigned int mcp2515_poll(struct file *file, poll_table *wait);
 static ssize_t mcp2515_read(struct file *file, char __user *buf, size_t count, loff_t *f_pos);
 static ssize_t mcp2515_write(struct file *file, const char __user *buf, size_t count, loff_t *f_pos);
 static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
-// static long mcp2515_set_rxb1f(struct rx_filter);
+static int mcp2515_set_rxbm(struct spi_device *spi, struct rx_mask mask);
+static int mcp2515_set_rxbf(struct spi_device *spi, struct rx_filter filter);
+static int mcp2515_get_rxbf(struct spi_device *spi, struct rx_filter *filter);
 
 // device provisioning 
 static int mcp2515_spi_probe(struct spi_device *spi);
@@ -286,8 +288,9 @@ static int mcp2515_config_hw(struct spi_device *spi)
     u8 caninte = 0;  // interrupt register value
     u8 rxb0ctrl = 0; // receive buffer 0 control register value   
     u8 rxb1ctrl = 0; // receive buffer 1 control register value
-    u16 id = 0;
 
+    struct rx_mask mask;
+    struct rx_filter filter;
     struct mcp2515_platform_data *pdata = NULL;
     struct mcp2515_priv *priv = spi_get_drvdata(spi);
     if(!priv) {
@@ -299,13 +302,6 @@ static int mcp2515_config_hw(struct spi_device *spi)
     if(!pdata) {
         dev_err(&spi->dev, "Error in mcp2515_config_hw(): pdata pointer is null\n");
         return -EINVAL;
-    }
-
-    // reset the hardware and enter configuration mode
-    ret = mcp2515_reset_hw(spi); 
-    if (ret) {
-        dev_err(&spi->dev, "Failed to reset the hardware\n");
-        return ret;
     }
 
     // set bittiming, sample point and baudrate via (CNF1, CNF2, CNF3) registers
@@ -332,12 +328,13 @@ static int mcp2515_config_hw(struct spi_device *spi)
     rxb0ctrl |= (MCP2515_RXM_RCV_VALID_MSG << MCP2515_RXB0_RXM_O); // set the operation mode to receives all valid messages 
     ret |= mcp2515_write_reg(spi, MCP2515_RXB0CTRL, rxb0ctrl);
     // set mask for RxB0: match all bits to filter CAN ID
-    id = 0x7FF; // 0111 1111 1111 matching mask  
-    ret |= mcp2515_write_reg(spi, MCP2515_RXM0SIDH, ((id >> 3) & 0xFF));  // mask 0 high byte
-    ret |= mcp2515_write_reg(spi, MCP2515_RXM0SIDL, ((id << MCP2515_RXM_SID_O) & MCP2515_RXM_SID_M)); // mask 0 low byte
-    // set rxb0 filter 0 to: 0x7FF
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF0SIDH, ((id >> 3) & 0xFF));  // filter 0 gigh byte
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF0SIDL, ((id << MCP2515_RXF_SID_O) & MCP2515_RXF_SID_M)); // filter 0 low byte
+    mask.number = 0;
+    mask.value = 0x7FF;  // 0111 1111 1111 matching mask
+    ret |= mcp2515_set_rxbm(spi, mask);
+    // set rxb0 filter 0 to:
+    filter.number = 0;
+    filter.value =  0x7FF;  // 0111 1111 1111 filter vlaue 
+    ret |= mcp2515_set_rxbf(spi, filter);
     if (ret) {
         dev_err(&spi->dev, "Failed to configure receive buffer 0\n");
         return ret;
@@ -347,21 +344,9 @@ static int mcp2515_config_hw(struct spi_device *spi)
     rxb1ctrl |= (MCP2515_RXM_RCV_VALID_MSG << MCP2515_RXB1_RXM_O); // set the operation mode to: receives all valid messages
     ret |= mcp2515_write_reg(spi, MCP2515_RXB1CTRL, rxb1ctrl);
     // set mask for RxB1: match all bits to filter CAN ID
-    id = 0x7FF; // 0111 1111 1111 matching mask  
-    ret |= mcp2515_write_reg(spi, MCP2515_RXM1SIDH, ((id >> 3) & 0xFF));  // mask 1 high byte
-    ret |= mcp2515_write_reg(spi, MCP2515_RXM1SIDL, ((id << MCP2515_RXM_SID_O) & MCP2515_RXM_SID_M)); // mask 1 low byte
-    // set filter 2 for CAN ID 0x123
-    id = 0x123;
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF2SIDH, ((id >> 3) & 0xFF)); // filter 2 high byte
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF2SIDL, ((id << MCP2515_RXF_SID_O) & MCP2515_RXF_SID_M)); // filter 2 low byte
-    // set filter 2 for CAN ID 0x124
-    id = 0x124;
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF3SIDH, ((id >> 3) & 0xFF)); // filter 2 high byte
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF3SIDL, ((id << MCP2515_RXF_SID_O) & MCP2515_RXF_SID_M)); // filter 2 low byte
-    // set filter 2 for CAN ID 0x125
-    id = 0x125;
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF4SIDH, ((id >> 3) & 0xFF)); // filter 2 high byte
-    ret |= mcp2515_write_reg(spi, MCP2515_RXF4SIDL, ((id << MCP2515_RXF_SID_O) & MCP2515_RXF_SID_M)); // filter 2 low byte
+    mask.number = 1;
+    mask.value = 0x7FF;  // 0111 1111 1111 matching mask
+    ret |= mcp2515_set_rxbm(spi, mask);
     if (ret) {
         dev_err(&spi->dev, "Failed to configure receive buffer 1\n");
         return ret;
@@ -917,12 +902,64 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             dev_info(&spi->dev, "MCP2515 reset command received\n");
             
             // reset the hardware and block the caller thread until the functions returns
-            ret = (long)mcp2515_reset_hw(spi);
+            ret |= mcp2515_reset_hw(spi);
+            ret |= mcp2515_config_hw(spi);
+            ret |= circular_buffer_reset(&priv->rx_cbuf);
+            ret |= circular_buffer_reset(&priv->tx_cbuf);
+            if (ret) {
+                dev_err(&spi->dev, "Failed to reset the mcp2515 hardware\n");
+                return ret;
+            }
+
+            dev_info(&spi->dev, "MCP2515 succesfully reseted\n");
             break;
         }
-        case MC2515_SET_RXB1F_IOCTL: {
-            dev_info(&spi->dev, "MCP2515 set RXB1 filter command received\n");
-            // ToDo: implement 
+        case MCP2515_SET_RXBF_IOCTL: {
+            struct rx_filter filter;
+            dev_info(&spi->dev, "MCP2515 set RXB filter command received\n");
+
+            // retrieve filter data from user space 
+            ret = copy_from_user(&filter, (struct rx_filter __user *)arg, sizeof(struct rx_filter));
+            if (ret) {
+                dev_err(&spi->dev, "Failed to copy rx_filter struct from user space\n");
+                return -EFAULT;
+            }
+
+            // set the filter for receive buffer 
+            ret = mcp2515_set_rxbf(spi, filter);
+            if (ret) {
+                dev_err(&spi->dev, "Failed to set RXB filter: %d", filter.number);
+                return ret;
+            }
+
+            dev_info(&spi->dev, "MCP2515 RXB filter %d set to value: %d\n", filter.number, filter.value);
+            break;
+        }
+        case MCP2515_GET_RXBF_IOCTL: {
+            struct rx_filter filter;
+            dev_info(&spi->dev, "MCP2515 get RXB filter command received\n");
+
+            // retireve filter number to read
+            ret = copy_from_user(&filter, (struct rx_filter __user *)arg, sizeof(struct rx_filter));
+            if (ret) {
+                dev_err(&spi->dev, "Failed to copy rx_filter struct from user space\n");
+                return -EFAULT;
+            }
+
+            // read the register value for the given filter number
+            ret = mcp2515_get_rxbf(spi, &filter);
+            if (ret) {
+                dev_err(&spi->dev, "Failed to get RX filter: %d\n", filter.number);
+                return ret;
+            }
+
+            // write the filter data back to the user space 
+            ret = copy_to_user((struct rx_filter __user *)arg, &filter, sizeof(struct rx_filter));
+            if (ret) {
+                dev_err(&spi->dev, "Failed to copy opmode-value to user space\n");
+                return -EFAULT;
+            }
+
             break;
         }
         case MCP2515_SET_OPMODE_IOCTL: {
@@ -946,7 +983,7 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             u8 opmode = 0;
             dev_info(&spi->dev, "MCP2515 get operation mode command received\n");
 
-            // read CANSTAt register
+            // read CANSTAT register
             ret = (long)mcp2515_read_reg(spi, MCP2515_CANSTAT, &canstat);
             if (ret) {
                 dev_err(&spi->dev, "Failed to read CANSTAT register\n");
@@ -963,12 +1000,113 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             break;
         }
         default:    
-            return -ENOTTY;
+            return -ENOTTY; // command not supported 
     }
     return ret;
 }
 
-// probing the device
+// Sets the mask value for the appropriate RX buffer (0 or 1)
+static int mcp2515_set_rxbm(struct spi_device *spi, struct rx_mask mask)
+{
+    int ret = 0;
+    int sidh_reg = 0x0;
+    int sidl_reg = 0x0;
+
+    // Determine the high register address based on mask number
+    if (mask.number == 0)
+        sidh_reg = MCP2515_RXM0SIDH;    // High register address for mask 0 (RX buffer 0)
+    else if (mask.number == 1)
+        sidh_reg = MCP2515_RXM1SIDH;    // High register address for mask 1 (RX buffer 1)
+    else {
+        dev_err(&spi->dev, "Error, mask number %d is not supported\n", mask.number);
+        return -EINVAL; // Invalid argument error
+    }
+    
+    sidl_reg = sidh_reg + 1; // Low register address is one byte after high register
+
+    // Write to the mask registers 
+    ret |= mcp2515_write_reg(spi, sidh_reg, ((mask.value >> 3) & 0xFF)); 
+    ret |= mcp2515_write_reg(spi, sidl_reg, ((mask.value << MCP2515_RXM_SID_O) & MCP2515_RXM_SID_M)); 
+    if (ret) {
+        dev_err(&spi->dev, "Failed to set RX-Mask %d\n", mask.number);
+    }
+
+    return ret;
+}
+
+// Sets the filter value for the appropriate RX buffer (0 or 1)
+static int mcp2515_set_rxbf(struct spi_device *spi, struct rx_filter filter)
+{
+    int ret = 0;
+    u8 sidh_reg = 0x0;
+    u8 sidl_reg = 0x0;
+
+    // Validate the filter number
+    if (filter.number < 0 || filter.number > 5) {
+        dev_err(&spi->dev, "Error, filter number %d is not supported\n", filter.number);
+        return -EINVAL; // Invalid argument error
+    }
+    
+    // Adjust filter number for register calculation
+    if (filter.number >= 3)
+        filter.number++;
+    
+    // Calculate register addresses
+    sidh_reg = filter.number * 4; // High register address
+    sidl_reg = sidh_reg + 1;      // Low register address
+
+    // Write to the filter registers 
+    ret |= mcp2515_write_reg(spi, sidh_reg, ((filter.value >> 3) & 0xFF));  
+    ret |= mcp2515_write_reg(spi, sidl_reg, ((filter.value << MCP2515_RXF_SID_O) & MCP2515_RXF_SID_M)); 
+    if (ret) {
+        dev_err(&spi->dev, "Failed to set RX-Filter %d\n", filter.number);
+    }
+
+    return ret;
+}
+
+// Reads the filter value for the appropriate RX buffer (0 or 1)
+static int mcp2515_get_rxbf(struct spi_device *spi, struct rx_filter *filter)
+{
+    int ret = 0;
+    u8 sidh_reg = 0x0;
+    u8 sidl_reg = 0x0;
+    u8 sidh_val = 0, sidl_val = 0;
+    u8 adjusted_number = 0;
+
+    // Validate the filter number
+    if (filter->number < 2 || filter->number > 5) {
+        dev_err(&spi->dev, "Error, filter number %d is not supported\n", filter->number);
+        return -EINVAL; // Invalid argument error
+    }
+    
+    // Adjust filter number for register calculation
+    adjusted_number = filter->number;
+    if (adjusted_number >= 3)
+        adjusted_number++;
+    
+    // Calculate register addresses
+    sidh_reg = adjusted_number * 4; // High register address
+    sidl_reg = sidh_reg + 1;       // Low register address
+
+    // Read filter registers
+    ret |= mcp2515_read_reg(spi, sidh_reg, &sidh_val);  
+    ret |= mcp2515_read_reg(spi, sidl_reg, &sidl_val); 
+    if (ret) {
+        dev_err(&spi->dev, "Failed to read register for RX-Filter %d\n", filter->number);
+        return ret;
+    }
+
+    // Combine the high and low byte values into the filter value
+    filter->value = ((sidh_val << 3) | ((sidl_val & MCP2515_RXF_SID_M) >> MCP2515_RXF_SID_O));
+
+    pr_info("sidh: %u, sidl: %u for filter number: %d", sidh_val, sidl_val, filter->number);
+
+    return 0;
+}
+
+
+// Probing the device
 static int mcp2515_spi_probe(struct spi_device *spi)
 {
     int ret = 0;      // return value on success 
@@ -1077,17 +1215,18 @@ static int mcp2515_spi_probe(struct spi_device *spi)
     atomic_set(&priv->tx_buf_ready, 1);   // at the begin the TX2 buffer is empty and thus ready for new data  
 
     // configure the chip hardware 
-    ret = mcp2515_config_hw(spi);  
+    
+    // reset the hardware and enter configuration mode
+    ret = mcp2515_reset_hw(spi); 
     if (ret) {
-        dev_err(&spi->dev, "Failed to configure the mcp2515 hardware\n");
+        dev_err(&spi->dev, "Failed to reset the hardware\n");
         return ret;
     }
 
-    // set the desired operation mode 
-    priv->des_opmode = MCP2515_LOOPBACK_MODE;
-    ret = mcp2515_set_opmode(spi, priv->des_opmode);
+    // configure the hardware 
+    ret = mcp2515_config_hw(spi);  
     if (ret) {
-        dev_err(&spi->dev, "Failed to set desired operation mode\n");
+        dev_err(&spi->dev, "Failed to configure the mcp2515 hardware\n");
         return ret;
     }
 
@@ -1132,7 +1271,6 @@ static int mcp2515_spi_probe(struct spi_device *spi)
         dev_err(&spi->dev, "Failed to create device node\n");
         ret = PTR_ERR(dev_node);
         goto failed_device_create;
-
     }
 
     dev_info(&spi->dev, "Device probed successfully\n"); 
@@ -1213,7 +1351,6 @@ static struct spi_driver mcp_spi_driver = {
 	.remove = mcp2515_spi_remove,	// remove function 
 	.id_table = mcp2515_spi_id,		// Device-ID table
 };	
-
 
 // module initialization 
 static int __init mcp2515_module_init(void)

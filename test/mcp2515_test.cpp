@@ -82,21 +82,31 @@ void show_config_menu()
     std::cout << "=== MCP2515 Configuration Menu ===\n";
     std::cout << "1. Reset Device\n";
     std::cout << "2. Set RXB1 Filter\n";
-    std::cout << "3. Set Operation Mode\n";
-    std::cout << "4. Get Operation Mode\n";
-    std::cout << "5. Exit\n";
+    std::cout << "3. Get RXB1 Filter\n";
+    std::cout << "4. Set Operation Mode\n";
+    std::cout << "5. Get Operation Mode\n";
+    std::cout << "6. Exit\n";
     std::cout << "Enter your choice: ";
 }
 
 void config_hw(CanDevice *dev)
 {
     int fd = dev->get_fd();
+    std::string input;
     int choice = 0;
     while(true) {
         show_config_menu();
-        std::cin >> choice;
+        std::cin >> input;
+
+        try {
+            choice = std::stoi(input);
+        } catch (const std::exception& e) {
+            std::cerr << " Invalid input value, error in: " << e.what() << "\n\n";
+            continue;
+        }
+
         switch(choice) {
-            case 1: {
+            case MCP2515_RESET_SEQ_NO: {
                 if (ioctl(fd, MCP2515_RESET_IOCTL) < 0) {
                     std::cerr << "Failed to reset the device\n";
                 } else {
@@ -104,10 +114,82 @@ void config_hw(CanDevice *dev)
                 }
                 break;
             }
-            case 2:
-                // ToDo: implement
+            case MCP2515_SET_RXBF_SEQ_NO: {   
+                rx_filter filter;
+                
+                std::cout << "\n=== Filter configuration for Receive Buffer 1 ===\n";
+                while (true) {
+                    std::cout << "\nEnter filter number for RXB1 in range (2 to 5) or 'b' to break: ";
+                    std::cin >> input;
+
+                    // Check if the user entered 'b'
+                    if (input == "b" || input == "B") {
+                        std::cout << "Breaking the filter configuration...\n";
+                        break;
+                    }
+
+                    // Convert the input string to integer 
+                    try {
+                        filter.number = static_cast<uint8_t>(std::stoi(input));
+                    } catch (...) {
+                        std::cout << "Invalid input number. Please try again.\n";
+                        continue;
+                    }
+
+                    // Check if the entered filter number is in the allowed range 
+                    if (filter.number < 2 || filter.number > 5) {
+                        std::cout << "Invalid filter number. Please try again.\n";
+                        continue;
+                    }
+                
+                    std::cout << "Enter SID filter value in range (0 to 2047) or 'b' to break: ";
+                    std::cin >> input;
+
+                    // Check if the user entered 'b'
+                    if (input == "b" || input == "B") {
+                        std::cout << "Breaking the filter configuration...\n";
+                        break;
+                    }
+
+                    // Convert the input string to integer 
+                    try {
+                        filter.value = static_cast<uint8_t>(std::stoi(input));
+                    } catch (...) {
+                        std::cout << "Invalid input number. Please try again.\n";
+                        continue;
+                    }
+
+                    if (filter.value < 0 || filter.value > 2047) {
+                        std::cout << "Invalid SID filter value. Please try again.\n";
+                        continue;
+                    }
+                
+                    if (ioctl(fd, MCP2515_SET_RXBF_IOCTL, &filter)) {
+                        std::cerr << "Failed to set RXB1 filter\n";
+                    } else {
+                        std::cout << "RXB1 filter " << filter.number <<" successfully set\n";
+                    }
+                }
+                
                 break;
-            case 3: {
+            }
+            case MCP2515_GET_RXBF_SEQ_NO: {
+                rx_filter filter;
+
+                std::cout << "\n=== Receive Buffer 1 filter state ===\n";
+                for (int i = 2; i < 5; i++) {
+                    filter.number = static_cast<uint8_t>(i);
+                    if (ioctl(fd, MCP2515_GET_RXBF_IOCTL, &filter) < 0) {
+                        std::cout << "Failed to read the filter value\n";
+                        break;
+                    } else {
+                        std::cout << "Filter " << static_cast<int>(filter.number) << " is set to: " << static_cast<int>(filter.value) << std::endl;
+                    }
+                }
+
+                break;
+            }
+            case MCP2515_SET_OPMODE_SEQ_NO: {
                 int opmode_input;
                 uint8_t opmode = 0;
 
@@ -124,7 +206,7 @@ void config_hw(CanDevice *dev)
                 }
                 break;
             }
-            case 4: {
+            case MCP2515_GET_OPMODE_SEQ_NO: {
                 uint8_t opmode = 0;
                 if (ioctl(fd, MCP2515_GET_OPMODE_IOCTL, &opmode) < 0) {
                     std::cerr << "Failed to get operation mode\n";
@@ -133,7 +215,7 @@ void config_hw(CanDevice *dev)
                 }
                 break;
             }
-            case 5: {
+            case 6: {
                 std::cout << "Exiting configuration mode\n";
                 return;
             }
@@ -158,7 +240,7 @@ void thread_send_data(CanDevice* dev)
     while (!stop_thread.load()) {
         // read the CAN-SID 
         std::cout << "CAN-Message to send (type 's' to stop)\n";
-        std::cout << "Enter SID in hexadecimal (0x###): ";
+        std::cout << "Enter SID in range (0 to 2047): ";
         std::getline(std::cin, input);
         if (input == "s") {
             stop_thread.store(true);
@@ -166,7 +248,7 @@ void thread_send_data(CanDevice* dev)
         }
 
         try {
-            sid = static_cast<uint16_t>(std::stoul(input, nullptr, 16));   // interprets an unsigned integer value in the input string
+            sid =  static_cast<uint16_t>(std::stoi(input)); 
         }
         catch(const std::exception& e) {
             std::cerr << " Invalid SID, error in: " << e.what() << "\n\n";
@@ -176,7 +258,7 @@ void thread_send_data(CanDevice* dev)
         // read the CAN-Data
         std::cout << "Enter message: ";
         std::getline(std::cin, input);
-        if (input == "s") {
+        if (input == "s" || input == "S") {
             stop_thread.store(true);
             break;
         }

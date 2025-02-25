@@ -23,6 +23,11 @@ struct can_frame_data {
     uint8_t data[MCP2515_MAXDL];    // Data buffer
 };
 
+struct rx_mask {
+    uint8_t number;
+    uint16_t value;
+};
+
 struct rx_filter {
     uint8_t number;
     uint16_t value;

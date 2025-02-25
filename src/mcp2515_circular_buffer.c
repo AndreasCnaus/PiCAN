@@ -42,7 +42,7 @@ int circular_buffer_read(struct circular_buffer *cb, struct can_frame_data *fram
     *frame = cb->buf[cb->tail];
     cb->tail = (cb->tail + 1) % BUFFER_SIZE;
     cb->full = 0;
-
+    
     mutex_unlock(&cb->lock);
 
     return 0;
@@ -53,11 +53,9 @@ int circular_buffer_is_empty(struct circular_buffer *cb)
     bool ret = 0;
 
     mutex_lock(&cb->lock);
-
     if (cb->head == cb->tail && !cb->full) {
        ret = 1;  // buffer is empty
     } 
-
     mutex_unlock(&cb->lock);
 
     return ret;
@@ -68,9 +66,20 @@ int circular_buffer_is_full(struct circular_buffer *cb)
     int ret = 0;
 
     mutex_lock(&cb->lock);
-
     ret = cb->full;
-    
+    mutex_unlock(&cb->lock);
+
+    return ret;
+}
+
+int circular_buffer_reset(struct circular_buffer *cb)
+{
+    int ret = 0;
+
+    mutex_lock(&cb->lock);
+    cb->head = 0;
+    cb->tail = 0;
+    cb->full = 0;
     mutex_unlock(&cb->lock);
 
     return ret;
