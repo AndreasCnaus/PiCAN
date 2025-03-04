@@ -6,6 +6,7 @@
 #include <linux/types.h>    // For uint8_t, uint16_t in kernel space
 #else
 #include <stdint.h>         // For uint8_t, uint16_t in user space
+#include <stdio.h>          // For size_t
 #endif
 
 #define MCP2515_MAXDL 8     // Maximum Data Length for CAN messages
@@ -32,5 +33,10 @@ struct rx_filter {
     uint8_t number;
     uint16_t value;
 };
+
+extern const char *opmode_strings[];
+
+size_t get_opmode_strings_len(void);
+const char* get_opmode_string(unsigned int mode);
 
 #endif // MCP2515_COMMON_H

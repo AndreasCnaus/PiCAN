@@ -103,6 +103,7 @@ static int mcp2515_read_reg(struct spi_device *spi, u8 reg, u8 *value);
 static int mcp2515_write_bit(struct spi_device *spi, u8 reg, u8 mask, u8 value);
 
 static int mcp2515_set_opmode(struct spi_device *spi, u8 mode);
+static int mcp2515_get_opmode(struct spi_device *spi, u8 *mode);
 static int mcp2515_reset_hw(struct spi_device *spi);
 static int mcp2515_config_hw(struct spi_device *spi);
 static int mcp2515_start_dwork(struct mcp2515_priv *priv, work_func_t work_func);
@@ -251,6 +252,24 @@ static int mcp2515_set_opmode(struct spi_device *spi, u8 mode)
     return mcp2515_start_dwork(priv, mcp2515_check_opmode_work); 
 }
 
+static int mcp2515_get_opmode(struct spi_device *spi, u8 *mode)
+{
+    int ret = 0;
+    u8 canstat = 0x0;
+
+    // read CANSTAT register
+    ret = mcp2515_read_reg(spi, MCP2515_CANSTAT, &canstat);
+    if (ret) {
+        dev_err(&spi->dev, "Failed to read CANSTAT register\n");
+        return -EFAULT; 
+    }
+
+    // retrive operation mode from the status register 
+    *mode = ((canstat & MCP2515_OPMOD_M) >> MCP2515_OPMOD_O); 
+
+    return 0;
+}
+
 static int mcp2515_reset_hw(struct spi_device *spi) 
 {
     int ret = 0;
@@ -331,9 +350,12 @@ static int mcp2515_config_hw(struct spi_device *spi)
     mask.number = 0;
     mask.value = 0x7FF;  // 0111 1111 1111 matching mask
     ret |= mcp2515_set_rxbm(spi, mask);
-    // set rxb0 filter 0 to:
+    // set rxb0 filter 0 to: 0x7FF
+    filter.value =  0x7FF;  // 1111 1111 filter vlaue 
     filter.number = 0;
-    filter.value =  0x7FF;  // 0111 1111 1111 filter vlaue 
+    ret |= mcp2515_set_rxbf(spi, filter);
+    // set rxb0 filter 1 to: 0x7FF
+    filter.number = 1;
     ret |= mcp2515_set_rxbf(spi, filter);
     if (ret) {
         dev_err(&spi->dev, "Failed to configure receive buffer 0\n");
@@ -345,8 +367,13 @@ static int mcp2515_config_hw(struct spi_device *spi)
     ret |= mcp2515_write_reg(spi, MCP2515_RXB1CTRL, rxb1ctrl);
     // set mask for RxB1: match all bits to filter CAN ID
     mask.number = 1;
-    mask.value = 0x7FF;  // 0111 1111 1111 matching mask
+    mask.value =  0x7FF;
     ret |= mcp2515_set_rxbm(spi, mask);
+    // set rxb1 filter 2 to 5 to the value: 0x00
+    filter.value = 0x00;
+    for (filter.number = 2; filter.number <=5; filter.number++) {
+        ret |= mcp2515_set_rxbf(spi, filter);
+    }
     if (ret) {
         dev_err(&spi->dev, "Failed to configure receive buffer 1\n");
         return ret;
@@ -916,6 +943,7 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         }
         case MCP2515_SET_RXBF_IOCTL: {
             struct rx_filter filter;
+            u8 prev_opmode = 0x0;
             dev_info(&spi->dev, "MCP2515 set RXB filter command received\n");
 
             // retrieve filter data from user space 
@@ -925,8 +953,19 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
                 return -EFAULT;
             }
 
-            // set the filter for receive buffer 
-            ret = mcp2515_set_rxbf(spi, filter);
+            // save the current operation mode
+            ret |= mcp2515_get_opmode(spi, &prev_opmode);
+            
+            // switch the chip into the configuration mode 
+            ret |= mcp2515_set_opmode(spi, MCP2515_CONFIG_MODE);
+
+            // set the filter for receive buffer
+            ret |= mcp2515_set_rxbf(spi, filter);
+
+            // restore the old operation mode;
+            ret |= mcp2515_set_opmode(spi, prev_opmode);
+            
+            // check the overall error status 
             if (ret) {
                 dev_err(&spi->dev, "Failed to set RXB filter: %d", filter.number);
                 return ret;
@@ -937,6 +976,7 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         }
         case MCP2515_GET_RXBF_IOCTL: {
             struct rx_filter filter;
+            u8 prev_opmode = 0x0;
             dev_info(&spi->dev, "MCP2515 get RXB filter command received\n");
 
             // retireve filter number to read
@@ -946,8 +986,19 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
                 return -EFAULT;
             }
 
+            // save the current operation mode
+            ret |= mcp2515_get_opmode(spi, &prev_opmode);
+            
+            // switch the chip into the configuration mode 
+            ret |= mcp2515_set_opmode(spi, MCP2515_CONFIG_MODE);
+
             // read the register value for the given filter number
-            ret = mcp2515_get_rxbf(spi, &filter);
+            ret |= mcp2515_get_rxbf(spi, &filter);
+
+            // restore the old operation mode;
+            ret |= mcp2515_set_opmode(spi, prev_opmode);
+
+            // check the overall error status 
             if (ret) {
                 dev_err(&spi->dev, "Failed to get RX filter: %d\n", filter.number);
                 return ret;
@@ -979,19 +1030,17 @@ static long mcp2515_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             break;
         }
         case MCP2515_GET_OPMODE_IOCTL: {
-            u8 canstat = 0;
             u8 opmode = 0;
             dev_info(&spi->dev, "MCP2515 get operation mode command received\n");
 
-            // read CANSTAT register
-            ret = (long)mcp2515_read_reg(spi, MCP2515_CANSTAT, &canstat);
+            // retrieve the current operation mode form the chip 
+            ret = mcp2515_get_opmode(spi, &opmode);
             if (ret) {
-                dev_err(&spi->dev, "Failed to read CANSTAT register\n");
-                return -EFAULT; 
-            }
+                dev_err(&spi->dev, "Failed to retrieve the operation mode from the chip\n");
+                return -EFAULT;
+            } 
 
-            // retrive operation mode and copy it to user space 
-            opmode = ((canstat & MCP2515_OPMOD_M) >> MCP2515_OPMOD_O);
+            // copy the operation mode value to user space 
             ret = copy_to_user((u8 __user *)arg, &opmode, sizeof(opmode));
             if (ret) {
                 dev_err(&spi->dev, "Failed to copy opmode-value to user space\n");

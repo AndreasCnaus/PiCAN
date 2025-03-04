@@ -20,6 +20,7 @@ std::atomic<bool> stop_thread(false);   // gloabal flag to signal thread to stop
 
 static void signal_handler(int signal);
 static void show_config_menu();
+static void show_opmode_menu();
 static void config_hw(CanDevice* dev);
 static void thread_send_data(CanDevice* dev);
 static void thread_receive_data(CanDevice* dev);
@@ -87,6 +88,18 @@ void show_config_menu()
     std::cout << "5. Get Operation Mode\n";
     std::cout << "6. Exit\n";
     std::cout << "Enter your choice: ";
+}
+
+void show_opmode_menu()
+{
+    std::cout << std::endl;
+    std::cout << "=== Setting operation mode ===\n";
+
+    size_t len = get_opmode_strings_len();
+    for (size_t i = 0; i < len; i++) {
+        std::cout << i <<". " << get_opmode_string(i) << std::endl;
+    }
+    std::cout << std::endl;
 }
 
 void config_hw(CanDevice *dev)
@@ -177,7 +190,7 @@ void config_hw(CanDevice *dev)
                 rx_filter filter;
 
                 std::cout << "\n=== Receive Buffer 1 filter state ===\n";
-                for (int i = 2; i < 5; i++) {
+                for (int i = 2; i <= 5; i++) {
                     filter.number = static_cast<uint8_t>(i);
                     if (ioctl(fd, MCP2515_GET_RXBF_IOCTL, &filter) < 0) {
                         std::cout << "Failed to read the filter value\n";
@@ -192,6 +205,9 @@ void config_hw(CanDevice *dev)
             case MCP2515_SET_OPMODE_SEQ_NO: {
                 int opmode_input;
                 uint8_t opmode = 0;
+
+                // print the operation mode menu 
+                show_opmode_menu();
 
                 // read user input 
                 std::cout << "Enter operation mode: ";
@@ -211,7 +227,7 @@ void config_hw(CanDevice *dev)
                 if (ioctl(fd, MCP2515_GET_OPMODE_IOCTL, &opmode) < 0) {
                     std::cerr << "Failed to get operation mode\n";
                 } else {
-                    std::cout << "Current operation mode: " << static_cast<int>(opmode) << std::endl;
+                    std::cout << "Current operation mode: " << get_opmode_string(static_cast<uint8_t>(opmode)) << std::endl;
                 }
                 break;
             }
@@ -242,7 +258,7 @@ void thread_send_data(CanDevice* dev)
         std::cout << "CAN-Message to send (type 's' to stop)\n";
         std::cout << "Enter SID in range (0 to 2047): ";
         std::getline(std::cin, input);
-        if (input == "s") {
+        if (input == "s" || input == "S") {
             stop_thread.store(true);
             break;
         }
@@ -328,6 +344,7 @@ void thread_receive_data(CanDevice* dev)
     int fd = dev->get_fd();
     struct timeval timeout;
 
+    std::cout << "Waiting for CAN-Message (type 's' to stop)\n";
     while (!stop_thread.load()) {
         // Initialize the file descriptor set
         FD_ZERO(&read_fds);
@@ -355,9 +372,11 @@ void thread_receive_data(CanDevice* dev)
                 std::cerr << "Error: Failed to receive message: \n";
                 break;
             } else {
-                std::cout << "Received CAN_Message: ";
+                std::cout << "\nReceived CAN_Message: ";
                 frame.print_message();
                 frame.print_frame_data();
+
+                std::cout << "Waiting for CAN-Message (type 's' to stop)\n";
             }
         }
 
@@ -365,7 +384,7 @@ void thread_receive_data(CanDevice* dev)
         if (FD_ISSET(STDIN_FILENO, &read_fds)) {
             std::string input;
             std::getline(std::cin, input);
-            if (input == "s") {
+            if (input == "s" || input == "S") {
                 std::cout << "Stop message received. Stopping thread..." << std::endl;
                 stop_thread.store(true);
                 break;
