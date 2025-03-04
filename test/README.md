@@ -21,14 +21,14 @@ Run the tool in configuration mode to set up the MCP2515-Chip:
 ![Configuration](../docs/mcp2515_configuration.png)
 
 ### Read/Write Mode
-Run the tool in read or write mode to transmit or receive CAN-Messages:
-
-```sh
-./mcp2515_test read
-```
+Run the tool in write or read mode to transmit or receive CAN-Messages:
 
 ```sh
 ./mcp2515_test write
+```
+
+```sh
+./mcp2515_test read
 ```
 
 ![Test Verification](../docs/mcp2515_test_verification.png)
