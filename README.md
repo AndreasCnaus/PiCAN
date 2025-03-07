@@ -70,7 +70,6 @@ The PiCAN_Sense system architecture is organized as follows:
 
 ![Test Setup](https://github.com/AndreasCnaus/PiCAN_Sense/blob/master/docs/PiCAN_Sense_test_setup.jpg)
 
--  MCP2515 Linux Device Driver and Test-Tool: the IOCTL-Interface support for RESET, SET_RX1F and SET_OPMODE needs to be implemented
 -  MCP2515 Driver for STM23WB Microcontroller: **still needs to be implemented**.
 - Documentation of implementation and usage: **still needs to be implemented**.
   
