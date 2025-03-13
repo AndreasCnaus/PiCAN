@@ -21,4 +21,4 @@ This repository consists of custom Linux Device Driver for MCP2515 CAN-chip as w
 This driver currently uses a custom character device. Future enhancements could include integration with the Linux CAN framework (e.g., `can0`), enabling compatibility with tools like `candump`/`cansend`.  
 
 ⚙️ **DMA Support**:  
-The driver uses custom ring buffers for TX/RX synchronization. Moving towards **DMA** integration (via Linux kernel APIs like `dmaengine`) could reduce CPU usage. This would involve utilizing the kernel’s DMA subsystem.
+The driver uses custom ring buffers for TX/RX synchronization. Moving towards **DMA** integration (via Linux kernel APIs like `dmaengine`) could reduce CPU usage.
