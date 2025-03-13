@@ -1,6 +1,7 @@
     
 # PiCAN
-This repository consists of custom Linux Device Driver for MCP2515 CAN-chip as well as the user-space configuration- and test tool (see also [test]([/PiCAN/test/](https://github.com/AndreasCnaus/PiCAN/tree/master/test)) for usage and results).
+This repository consists of custom Linux Device Driver for MCP2515 CAN-chip as well as the user-space configuration- and test tool (see also [test](https://github.com/AndreasCnaus/PiCAN/tree/master/test)
+ for usage and results).
 
 ### Driver Components
 
