@@ -240,10 +240,20 @@ static int mcp2515_write_bit(struct spi_device *spi, u8 reg, u8 mask, u8 value)
 static int mcp2515_set_opmode(struct spi_device *spi, u8 mode)
 {
     int ret = 0;
+    u8 canctl = 0x00;           // CAN-Control register value 
     struct mcp2515_priv *priv = spi_get_drvdata(spi);
-    mode = mode << MCP2515_OPMOD_O;
-    priv->des_opmode = mode;    // set desired operation mode
-    ret = mcp2515_write_reg(spi, MCP2515_CANCTRL, mode);
+    priv->des_opmode = (mode << MCP2515_OPMOD_O) & MCP2515_OPMOD_M;    // desired operation mode
+
+    ret = mcp2515_read_reg(spi, MCP2515_CANCTRL, &canctl);
+    if (ret) {
+        dev_err(&spi->dev, "Failed to read CAN-Control register\n");
+        return ret;
+    }
+
+    // clear REQOP bits and set the desired operation mode
+    canctl = ((canctl & ~MCP2515_OPMOD_M) | priv->des_opmode);
+
+    ret = mcp2515_write_reg(spi, MCP2515_CANCTRL, canctl);
     if (ret) {
         dev_err(&spi->dev, "Failed to write to operation mode register\n");
         return ret;
@@ -277,7 +287,6 @@ static int mcp2515_reset_hw(struct spi_device *spi)
     u8 mode = MCP2515_CONFIG_MODE << MCP2515_OPMOD_O;
     u8 reset_cmd = MCP2515_RESET;  // set the desired command
     
-    
     // create spi message 
     struct spi_transfer transfer = {
         .tx_buf = &reset_cmd,
@@ -294,7 +303,7 @@ static int mcp2515_reset_hw(struct spi_device *spi)
         return ret;
     }
 
-    priv->des_opmode = mode;    // after reset the hardware should be in the configurationh mode 
+    priv->des_opmode = mode;    // after reset the hardware should be in the configuration mode 
     return mcp2515_start_dwork(priv, mcp2515_check_opmode_work);    // wait for the set delay time and check the operation mode
 }
 
@@ -321,6 +330,13 @@ static int mcp2515_config_hw(struct spi_device *spi)
     if(!pdata) {
         dev_err(&spi->dev, "Error in mcp2515_config_hw(): pdata pointer is null\n");
         return -EINVAL;
+    }
+
+    // set CAN-Control register to 0x00
+    ret = mcp2515_write_reg(spi, MCP2515_CANCTRL, 0x00);
+    if (ret) {
+        dev_err(&spi->dev, "Failed to initialize CAN-Control register\n");
+        return ret;
     }
 
     // set bittiming, sample point and baudrate via (CNF1, CNF2, CNF3) registers
