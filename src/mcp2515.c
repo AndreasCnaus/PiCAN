@@ -465,6 +465,12 @@ static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id)
     int ret = 0;
     // standard Identifier consists of 11-bits
     u8 sidl, sidh;  // 3-lower and 8-higher bits 
+
+    // Validate the 11-bit CAN ID
+    if (id > 0x7FF) {
+        dev_err(&spi->dev, "Invalid CAN SID: 0x%X. Must be 11 bits.\n", id);
+        return HAL_ERROR;
+    }
     
     // split the ID on 8-bit high and 3-bit low register
     sidl = (u8)(id << MCP2515_TXB_SIDL_O);  // save the lower 3-bits in the low register by appropriate shifting 
@@ -474,7 +480,7 @@ static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id)
     ret |= mcp2515_write_reg(spi, MCP2515_TXB2SIDH, sidh);
 
     if (ret) {
-        dev_err(&spi->dev, "Failed to set message ID: 0x%X for TXB2\n", id);
+        dev_err(&spi->dev, "Failed to set message SID: 0x%X for TXB2\n", id);
     }
 
     return ret;
@@ -483,8 +489,10 @@ static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id)
 static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len)
 {
     int ret = 0;
-    u8 dlc = (len & MCP2515_TXB_DLC_M); // init data length code  value 
-    len = min(len, (u8)MCP2515_MAXDL);  // limit the length to the maximum allowed value 
+
+    // limit the length to the maximum allowed value 
+    u8 dlc = (len & MCP2515_TXB_DLC_M); 
+    dlc = min(dlc, (u8)MCP2515_MAXDL);  // mask DLC to ensure proper format
 
     // set the data length code
     ret |= mcp2515_write_reg(spi, MCP2515_TXB2DLC, dlc);
@@ -494,7 +502,7 @@ static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len)
     }
 
     // write data bytes to the transmit buffer
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < dlc; i++) {
         ret |= mcp2515_write_reg(spi, MCP2515_TXB2D0 + i, data[i]);
     } 
 
@@ -505,7 +513,7 @@ static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len)
     return ret;
 }
 
-// transmit low riority message over the transmit buffer 2 
+// transmit low priority message over the transmit buffer 2 
 static int mcp2515_write_can_frame(struct spi_device *spi, u16 id, const u8 *data, u8 len)
 {
     int ret = 0;
