@@ -46,7 +46,7 @@
                 interrupts = <17 2>;                // Edge-falling interrupt on GPIO 17
 
                 // Configuration parameters for CAN-Bus baudrate = 125kbps
-                bpr = <2>;          // baudrate prescaler to devide the oscillator frequency 
+                brp = <2>;          // Baudrate prescaler to devide the oscillator frequency 
                 tsync = <1>;        // Synchronization segment time in TQ sudo apt-get install git-core
 
                 tprop_seg = <2>;    // Propagation segment time in TQ

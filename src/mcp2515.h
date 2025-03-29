@@ -140,7 +140,9 @@
 #define MCP2515_BRP1    BIT(1) // CNF1: BRP1 - Baud rate prescaler bit 1
 #define MCP2515_BRP0    BIT(0) // CNF1: BRP0 - Baud rate prescaler bit 0
 
+#define MCP2515_SJW_M   (MCP2515_SJW0 | MCP2515_SJW1) // Synchronization Jump Width mask 
 #define MCP2515_SJW_O    6     // Offset of the Synchronization Jump Width register
+#define MCP2515_BRP_M   (MCP2515_BRP5 | MCP2515_BRP4 | MCP2515_BRP3 | MCP2515_BRP2 | MCP2515_BRP1 | MCP2515_BRP0)   // Baudrate Prescaler mask 
 #define MCP2515_BRP_O    0     // Offset of the Baud Rate Prescaler register
 
 // CANINTE Register

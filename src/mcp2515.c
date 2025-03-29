@@ -40,7 +40,7 @@ struct mcp2515_platform_data {
     int irq;
     // CAN-Bus parameters:
     u32 baudrate;   // CAN bus baud rate in bps (back-calculated value)
-    u8 bpr;         // baudrate prescaler of main oscillator clock 
+    u8 brp;         // Baudrate prescaler of main oscillator clock 
     u8 tsync;       // Synchronization segment time in TQ
     u8 tprop_seg;   // Propagation segment time in TQ
     u8 ps1;         // Phase segment 1 time in TQ
@@ -324,9 +324,10 @@ static int mcp2515_config_hw(struct spi_device *spi)
     }
 
     // set bittiming, sample point and baudrate via (CNF1, CNF2, CNF3) registers
-    cnf1 |= (pdata->sjw << MCP2515_SJW_O) | pdata->bpr;
-    cnf2 |= (pdata->btlmode << MCP2515_BTLMODE_O) | (pdata->sam << MCP2515_SAM_O) | (pdata->ps1 << MCP2515_PHSEG1_O) | (pdata->tprop_seg << MCP2515_PRSEG_O);
-    cnf3 |= (pdata->ps2);
+    cnf1 |= ((((pdata->sjw - 1) << MCP2515_SJW_O) & MCP2515_SJW_M) | ((pdata->brp - 1) & MCP2515_BRP_M));
+    cnf2 |= (pdata->btlmode << MCP2515_BTLMODE_O) | (pdata->sam << MCP2515_SAM_O) | ((pdata->ps1 -1 ) << MCP2515_PHSEG1_O) | ((pdata->tprop_seg - 1) << MCP2515_PRSEG_O);
+    cnf3 |= (pdata->ps2 - 1);
+
     ret = mcp2515_write_reg(spi, MCP2515_CNF1, cnf1);
     ret |= mcp2515_write_reg(spi, MCP2515_CNF2, cnf2);
     ret |= mcp2515_write_reg(spi, MCP2515_CNF3, cnf3);
@@ -334,7 +335,7 @@ static int mcp2515_config_hw(struct spi_device *spi)
         dev_err(&spi->dev, "Failed to set baud rate registers\n");
         return ret;
     }
-
+    
     // enable interrupts 
     caninte = 0xFF; // enable all interrupts 
     ret = mcp2515_write_reg(spi, MCP2515_CANINTE, caninte);
@@ -733,7 +734,7 @@ static int mcp2515_handle_rx1if(struct mcp2515_priv *priv)
     ret = circular_buffer_write(&priv->rx_cbuf, &frame);
     if (ret) {
         // just signal ring buffer overflow (because it is valid condtion)
-        dev_info(&spi->dev, "Transmit buffer overflow: tail message was overriden\n");
+        dev_info(&spi->dev, "Receive buffer overflow: tail message was overriden\n");
     }
  
     mutex_lock(&priv->spi_lock);
@@ -1198,7 +1199,7 @@ static int mcp2515_spi_probe(struct spi_device *spi)
     // read CAN-Bus parameters from the device tree 
     if (of_property_read_u32(np, "oscillator-frequency", &pdata->osc_freq) ||
         of_property_read_u32(np, "ost", &pdata->ost) ||
-        of_property_read_u32(np, "bpr", &temp_u32) || (pdata->bpr = (u8)temp_u32, 0) ||
+        of_property_read_u32(np, "brp", &temp_u32) || (pdata->brp = (u8)temp_u32, 0) ||
         of_property_read_u32(np, "tsync", &temp_u32) || (pdata->tsync = (u8)temp_u32, 0) ||
         of_property_read_u32(np, "tprop_seg", &temp_u32) || (pdata->tprop_seg = (u8)temp_u32, 0) ||
         of_property_read_u32(np, "ps1", &temp_u32) || (pdata->ps1 = (u8)temp_u32, 0) ||
@@ -1216,7 +1217,7 @@ static int mcp2515_spi_probe(struct spi_device *spi)
  
     // calculate and print the baudrate of the CAN-Bus (just for the test purpose)
     nofTq = pdata->tsync + pdata->tprop_seg + pdata->ps1 + pdata->ps2;
-    pdata->baudrate = pdata->osc_freq/(2 * pdata->bpr * nofTq);
+    pdata->baudrate = pdata->osc_freq/(2 * pdata->brp * nofTq);
     dev_info(&spi->dev, "Calculated baudrate: %dbps\n", pdata->baudrate);
 
     // request IRQ with the top half (ISR) and bottom half (threaded handler)
