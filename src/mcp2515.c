@@ -240,10 +240,20 @@ static int mcp2515_write_bit(struct spi_device *spi, u8 reg, u8 mask, u8 value)
 static int mcp2515_set_opmode(struct spi_device *spi, u8 mode)
 {
     int ret = 0;
+    u8 canctl = 0x00;           // CAN-Control register value 
     struct mcp2515_priv *priv = spi_get_drvdata(spi);
-    mode = mode << MCP2515_OPMOD_O;
-    priv->des_opmode = mode;    // set desired operation mode
-    ret = mcp2515_write_reg(spi, MCP2515_CANCTRL, mode);
+    priv->des_opmode = (mode << MCP2515_OPMOD_O) & MCP2515_OPMOD_M;    // desired operation mode
+
+    ret = mcp2515_read_reg(spi, MCP2515_CANCTRL, &canctl);
+    if (ret) {
+        dev_err(&spi->dev, "Failed to read CAN-Control register\n");
+        return ret;
+    }
+
+    // clear REQOP bits and set the desired operation mode
+    canctl = ((canctl & ~MCP2515_OPMOD_M) | priv->des_opmode);
+
+    ret = mcp2515_write_reg(spi, MCP2515_CANCTRL, canctl);
     if (ret) {
         dev_err(&spi->dev, "Failed to write to operation mode register\n");
         return ret;
@@ -277,7 +287,6 @@ static int mcp2515_reset_hw(struct spi_device *spi)
     u8 mode = MCP2515_CONFIG_MODE << MCP2515_OPMOD_O;
     u8 reset_cmd = MCP2515_RESET;  // set the desired command
     
-    
     // create spi message 
     struct spi_transfer transfer = {
         .tx_buf = &reset_cmd,
@@ -294,7 +303,7 @@ static int mcp2515_reset_hw(struct spi_device *spi)
         return ret;
     }
 
-    priv->des_opmode = mode;    // after reset the hardware should be in the configurationh mode 
+    priv->des_opmode = mode;    // after reset the hardware should be in the configuration mode 
     return mcp2515_start_dwork(priv, mcp2515_check_opmode_work);    // wait for the set delay time and check the operation mode
 }
 
@@ -321,6 +330,13 @@ static int mcp2515_config_hw(struct spi_device *spi)
     if(!pdata) {
         dev_err(&spi->dev, "Error in mcp2515_config_hw(): pdata pointer is null\n");
         return -EINVAL;
+    }
+
+    // set CAN-Control register to 0x00
+    ret = mcp2515_write_reg(spi, MCP2515_CANCTRL, 0x00);
+    if (ret) {
+        dev_err(&spi->dev, "Failed to initialize CAN-Control register\n");
+        return ret;
     }
 
     // set bittiming, sample point and baudrate via (CNF1, CNF2, CNF3) registers
@@ -466,6 +482,12 @@ static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id)
     int ret = 0;
     // standard Identifier consists of 11-bits
     u8 sidl, sidh;  // 3-lower and 8-higher bits 
+
+    // Validate the 11-bit CAN ID
+    if (id > 0x7FF) {
+        dev_err(&spi->dev, "Invalid CAN SID: 0x%X. Must be 11 bits.\n", id);
+        return HAL_ERROR;
+    }
     
     // split the ID on 8-bit high and 3-bit low register
     sidl = (u8)(id << MCP2515_TXB_SIDL_O);  // save the lower 3-bits in the low register by appropriate shifting 
@@ -475,7 +497,7 @@ static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id)
     ret |= mcp2515_write_reg(spi, MCP2515_TXB2SIDH, sidh);
 
     if (ret) {
-        dev_err(&spi->dev, "Failed to set message ID: 0x%X for TXB2\n", id);
+        dev_err(&spi->dev, "Failed to set message SID: 0x%X for TXB2\n", id);
     }
 
     return ret;
@@ -484,8 +506,10 @@ static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id)
 static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len)
 {
     int ret = 0;
-    u8 dlc = (len & MCP2515_TXB_DLC_M); // init data length code  value 
-    len = min(len, (u8)MCP2515_MAXDL);  // limit the length to the maximum allowed value 
+
+    // limit the length to the maximum allowed value 
+    u8 dlc = (len & MCP2515_TXB_DLC_M); 
+    dlc = min(dlc, (u8)MCP2515_MAXDL);  // mask DLC to ensure proper format
 
     // set the data length code
     ret |= mcp2515_write_reg(spi, MCP2515_TXB2DLC, dlc);
@@ -495,7 +519,7 @@ static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len)
     }
 
     // write data bytes to the transmit buffer
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < dlc; i++) {
         ret |= mcp2515_write_reg(spi, MCP2515_TXB2D0 + i, data[i]);
     } 
 
@@ -506,7 +530,7 @@ static int mcp2515_set_tx2_data(struct spi_device *spi, const u8 *data, u8 len)
     return ret;
 }
 
-// transmit low riority message over the transmit buffer 2 
+// transmit low priority message over the transmit buffer 2 
 static int mcp2515_write_can_frame(struct spi_device *spi, u16 id, const u8 *data, u8 len)
 {
     int ret = 0;
