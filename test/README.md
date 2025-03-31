@@ -9,6 +9,7 @@ This repository contains a command-line tool for configuring and testing the MCP
   - Get/Set the Operation Mode
 - **Data Transmission**: Write CAN-Message [SID:Data] on the CAN-Bus (or to the TX->RX-Buffer in loopback mode)
 - **Data Reception**: Read CAN-Message [SID:Data] from the RX-Buffer
+- **Environmental Data Measurement**: Reads the environmental data (temperature, humidity and air pressure) from the CAN bus and prints them in a table format
 
 ## Usage
 
@@ -20,7 +21,9 @@ Run the tool in configuration mode to set up the MCP2515-Chip:
 ```
 ![Configuration](../docs/mcp2515_configuration.png)
 
+
 ### Read/Write Mode
+This model is well suited for testing in loopback mode. <br>
 Run the tool in write or read mode to transmit or receive CAN-Messages:
 
 ```sh
@@ -32,6 +35,15 @@ Run the tool in write or read mode to transmit or receive CAN-Messages:
 ```
 
 ![Test Verification](../docs/mcp2515_test_verification.png)
+
+
+### Environmental Data Measurement Mode
+In this mode, the environmental measurement data is displayed in tabular form. This verifies the functionality of the entire system.
+
+```sh
+./mcp2515_test meas
+```
+![Test Verification](../docs/mcp2515_env_measurement.png)
 
 ## Installation
 

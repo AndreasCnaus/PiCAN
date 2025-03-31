@@ -12,9 +12,25 @@
 #include <csignal>      // required for handling POSIX signals
 #include <sys/ioctl.h>  // required for ioctl system call for device-specific input/output operations
 #include <fcntl.h>      // required for file control options like open, O_RDWR, O_NONBLOCK, etc.
-
+#include <cstdio>       // required for printf function
+#include <map>
+#include <string>
+#include <optional>
+#include <time.h>
 
 #define DEVICE_FILE     "/dev/mcp2515"  // mcp2515 device file
+
+// SIDs for BME280 sensor values transmitted via MCP2515
+#define BME280_TEMPERATURE_SID    25
+#define BME280_HUMIDITY_SID       26
+#define BME280_PRESSURE_SID       27
+#define NUMBER_OF_MEAS_DATA        3
+
+std::map<uint16_t, std::string> SID_String_Map = {
+    {BME280_TEMPERATURE_SID, "Temperature"},
+    {BME280_HUMIDITY_SID, "Humidity"},
+    {BME280_PRESSURE_SID, "Pressure"}
+};  
 
 std::atomic<bool> stop_thread(false);   // gloabal flag to signal thread to stop  
 
@@ -24,12 +40,15 @@ static void show_opmode_menu();
 static void config_hw(CanDevice* dev);
 static void thread_send_data(CanDevice* dev);
 static void thread_receive_data(CanDevice* dev);
+static std::optional<float> get_meas_value(std::vector<CanFrame> &frames, uint16_t sid);
+static void receive_meas_data(CanDevice *dev);
+
 
 int main(int argc, char* argv[]) 
 {
     // parse input parameters 
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << "<config|read|write>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <config|read|write|meas>" << std::endl;
         return 1;
     }
 
@@ -56,6 +75,10 @@ int main(int argc, char* argv[])
             std::thread receiver(thread_receive_data, &dev);
             receiver.join();    // wait for receiver thread finish
         } 
+        else if (mode == "meas") {
+            CanDevice dev(DEVICE_FILE, O_RDONLY | O_NONBLOCK);
+            receive_meas_data(&dev);
+        }
         else {
             std::cerr << "Invalid mode. Use 'read' or 'write'." << std::endl;
         }
@@ -69,8 +92,7 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-
-void signal_handler(int signal)
+static void signal_handler(int signal)
 {
     if (signal == SIGINT || signal == SIGTERM) {
         stop_thread.store(true); // signal threads to stop
@@ -78,7 +100,7 @@ void signal_handler(int signal)
     }
 }
 
-void show_config_menu()
+static void show_config_menu()
 {
     std::cout << "=== MCP2515 Configuration Menu ===\n";
     std::cout << "1. Reset Device\n";
@@ -90,7 +112,7 @@ void show_config_menu()
     std::cout << "Enter your choice: ";
 }
 
-void show_opmode_menu()
+static void show_opmode_menu()
 {
     std::cout << std::endl;
     std::cout << "=== Setting operation mode ===\n";
@@ -102,7 +124,7 @@ void show_opmode_menu()
     std::cout << std::endl;
 }
 
-void config_hw(CanDevice *dev)
+static void config_hw(CanDevice *dev)
 {
     int fd = dev->get_fd();
     std::string input;
@@ -243,7 +265,7 @@ void config_hw(CanDevice *dev)
     }
 }
 
-void thread_send_data(CanDevice* dev)
+static void thread_send_data(CanDevice* dev)
 {
     uint16_t sid;
     std::vector<uint8_t> data;
@@ -337,7 +359,7 @@ void thread_send_data(CanDevice* dev)
     }
 }
 
-void thread_receive_data(CanDevice* dev)
+static void thread_receive_data(CanDevice* dev)
 {
     CanFrame frame;
     fd_set read_fds;
@@ -389,6 +411,133 @@ void thread_receive_data(CanDevice* dev)
                 stop_thread.store(true);
                 break;
             }
+        }
+    } 
+}
+
+static std::optional<float> get_meas_value(std::vector<CanFrame>& frames, uint16_t sid) {
+    for (const auto& frame : frames) {
+        can_frame_data frame_data = frame.get_frame_data();
+
+        if (frame_data.sid == sid) {
+            // Make sure that the data fits into the float value
+            if (static_cast<size_t>(frame_data.dlc) != sizeof(float)) {
+                std::cerr << "Error in get_meas_value(): Data Length Code is greater than 4 bytes\n";
+                return std::nullopt;
+            }
+
+            // Convert the raw data to a float (assuming the float is represented in the first 4 bytes)
+            float value = 0.0f;
+            std::memcpy(&value, frame_data.data, sizeof(float));
+            return value;
+        }
+    }
+
+    // Return std::nullopt if no matching SID is found
+    return std::nullopt;
+}
+
+static void receive_meas_data(CanDevice *dev)
+{
+    fd_set read_fds;
+    int fd = dev->get_fd();
+    struct timeval timeout;
+    CanFrame frame;
+    std::vector<CanFrame> frames(NUMBER_OF_MEAS_DATA);
+    int frame_idx = 0;
+
+    std::cout << "\n \t\t=== Environmental data stream  (type 's' to stop) ===\n\n";
+
+    // Print table header 
+    printf(" %-20s %-20s %-20s %-20s\n", "Temperature (°C)", "Humidity (%)", "Pressure (Pa)", "Timestamp");
+ 
+    while (true) {
+        // Initialize the file descriptor set
+        FD_ZERO(&read_fds);
+        FD_SET(fd, &read_fds);          // Add the device file descriptor
+        FD_SET(STDIN_FILENO, &read_fds); // Add stdin file descriptor
+
+        // Set timeout to 2 second
+        timeout.tv_sec = 2;
+        timeout.tv_usec = 0;
+
+        // Wait for data on either the device or stdin
+        int ret = select(fd + 1, &read_fds, nullptr, nullptr, &timeout);
+        if (ret < 0) {
+            std::cerr << "select() error" << std::endl;
+            break;
+        } else if (ret == 0) {
+            std::cerr << "Timeout occurred, device is not ready for readable\n";
+            continue;
+        }
+
+        // Check if data is available on the device
+        if (FD_ISSET(fd, &read_fds)) {
+            // Get the data from the driver 
+            int ret = dev->receive_frame(frame);
+            if (ret) {
+                std::cerr << "Error: Failed to receive message: \n";
+                break;
+            } else {
+               
+                frames[frame_idx] = frame;
+                frame_idx = (frame_idx + 1) % NUMBER_OF_MEAS_DATA;
+            }
+        }
+
+        // Check if the user has entered a stop message
+        if (FD_ISSET(STDIN_FILENO, &read_fds)) {
+            std::string input;
+            std::getline(std::cin, input);
+            if (input == "s" || input == "S") {
+                std::cout << "Stop message received. Stopping programm..." << std::endl;
+                stop_thread.store(true);
+                break;
+            }
+        }
+
+        if (frame_idx == (NUMBER_OF_MEAS_DATA - 1)) {
+            float temp_deg = 0.0f;  // Temperature in degrees
+            float hum_prh = 0.0f;   // Relative Humidity in percent
+            float pres_pa = 0.0f;   // Pressure in pascals
+
+            // Retrieve Temperature value 
+            auto meas_value = get_meas_value(frames, BME280_TEMPERATURE_SID);
+            if (meas_value) {
+                temp_deg = *meas_value;
+            }
+            else {
+                printf("No value found for the given SID: %u\n", BME280_TEMPERATURE_SID);
+            }
+
+            // Humidity Temperature value 
+            meas_value = get_meas_value(frames, BME280_HUMIDITY_SID);
+            if (meas_value) {
+                hum_prh = *meas_value;
+            }
+            else {
+                printf("No value found for the given SID: %u\n", BME280_HUMIDITY_SID);
+            }
+
+            // Pressure Temperature value 
+            meas_value = get_meas_value(frames, BME280_PRESSURE_SID);
+            if (meas_value) {
+                pres_pa = *meas_value;
+            }
+            else {
+                printf("No value found for the given SID: %u\n", BME280_PRESSURE_SID);
+            }
+            
+            // Get current time 
+            time_t curr_time = time(NULL);
+            struct tm *time_info = localtime(&curr_time);
+
+            // Format the timestemp
+            char timestemp[50];
+            strftime(timestemp, sizeof(timestemp), "%Y-%m-%d %H:%M:%S", time_info);
+            
+            // Print the data along with the timestamp
+            printf(" %-20.1f %-20.1f %-20.1f %-20s\n", temp_deg, hum_prh, pres_pa, timestemp);
         }
     } 
 }

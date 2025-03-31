@@ -1,5 +1,5 @@
 # Compiler and flags
-CC = g++
+CC = g++ -std=c++17
 CFLAGS = -Wall -pthread
 
 # Target executable
