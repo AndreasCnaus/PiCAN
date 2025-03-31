@@ -332,13 +332,6 @@ static int mcp2515_config_hw(struct spi_device *spi)
         return -EINVAL;
     }
 
-    // set CAN-Control register to 0x00
-    ret = mcp2515_write_reg(spi, MCP2515_CANCTRL, 0x00);
-    if (ret) {
-        dev_err(&spi->dev, "Failed to initialize CAN-Control register\n");
-        return ret;
-    }
-
     // set bittiming, sample point and baudrate via (CNF1, CNF2, CNF3) registers
     cnf1 |= ((((pdata->sjw - 1) << MCP2515_SJW_O) & MCP2515_SJW_M) | ((pdata->brp - 1) & MCP2515_BRP_M));
     cnf2 |= (pdata->btlmode << MCP2515_BTLMODE_O) | (pdata->sam << MCP2515_SAM_O) | ((pdata->ps1 -1 ) << MCP2515_PHSEG1_O) | ((pdata->tprop_seg - 1) << MCP2515_PRSEG_O);
@@ -486,7 +479,7 @@ static int mcp2515_set_tx2_id(struct spi_device *spi, u16 id)
     // Validate the 11-bit CAN ID
     if (id > 0x7FF) {
         dev_err(&spi->dev, "Invalid CAN SID: 0x%X. Must be 11 bits.\n", id);
-        return HAL_ERROR;
+        return -EINVAL;
     }
     
     // split the ID on 8-bit high and 3-bit low register
