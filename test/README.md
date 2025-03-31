@@ -23,7 +23,7 @@ Run the tool in configuration mode to set up the MCP2515-Chip:
 
 
 ### Read/Write Mode
-This model is well suited for testing in loopback mode. <br>
+This mode is well suited for testing in loopback mode. <br>
 Run the tool in write or read mode to transmit or receive CAN-Messages:
 
 ```sh
