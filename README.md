@@ -32,7 +32,6 @@ This project is licensed under the MIT License. You can find the full license te
 
 The licenses of any additional third-party components are provided in their respective documentation.
 
-* 
 ## Reference
 
 The fundamental device driver implementations were guided by:
