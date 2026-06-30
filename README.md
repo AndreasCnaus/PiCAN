@@ -31,3 +31,11 @@ This project is licensed under the MIT License. You can find the full license te
 ### Third-Party Software
 
 The licenses of any additional third-party components are provided in their respective documentation.
+
+* 
+## Reference
+
+The fundamental device driver implementations were guided by:
+
+* **Linux Device Drivers, 3rd Edition:** https://www.oreilly.com/library/view/linux-device-drivers/0596005903/
+* **Linux Device Driver Development - Second Edition:** https://www.oreilly.com/library/view/linux-device-driver/9781803240060/
